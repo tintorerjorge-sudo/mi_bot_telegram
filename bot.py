@@ -13,49 +13,57 @@ from telegram.ext import (
 # ─────────────────────────────────────────
 BOT_TOKEN           = "8635925049:AAGQmYXxJO46sAlDwqUHrYn_Gji13rBmnIA"
 NOWPAYMENTS_API_KEY = "PXZH1F1-BEH4YKA-HJB3Y2A-J0EVFGH"
+NOWPAYMENTS_IPN_KEY = "pBlLEEBbskZxVnKEa7GulspBv/Ladb7Q"
 NOWPAYMENTS_BASE    = "https://api.nowpayments.io/v1"
 ADMIN_ID            = 8774834097
+SUPPORT_LINK        = "https://t.me/cypheeer"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────
-#  ACCESS LINKS — edit these after each payment is confirmed
-#  For plans/vip/courses: Telegram invite links
-#  For tools: instructions sent automatically
+#  ACCESS LINKS & INSTRUCTIONS
 # ─────────────────────────────────────────
+SUBSCRIPTION_LINK = "https://t.me/+5qbVUN5pklYzYzBk"
+
+SUBSCRIPTION_INSTRUCTIONS = (
+    "✅ *Payment confirmed!*\n\n"
+    "Here is your access link:\n"
+    f"👉 {SUBSCRIPTION_LINK}\n\n"
+    "📋 *Next steps:*\n"
+    "1️⃣ Wait for the bot to confirm your payment\n"
+    "2️⃣ Once confirmed, the bot will send you a link to access the private channel\n"
+    "3️⃣ After receiving the link, request to join — the admin will review your transaction and accept you into the channel\n\n"
+    "⚠️ This link is personal — do not share it."
+)
+
+TOOL_INSTRUCTIONS = (
+    "✅ *Thank you for your purchase!*\n\n"
+    "📋 *Instructions:*\n"
+    "1️⃣ Wait for the bot to confirm your payment\n"
+    "2️⃣ Once confirmed, the bot will send you a link to access the private channel\n"
+    "3️⃣ After receiving the link, request to join — the admin will review your transaction and accept you into the channel\n\n"
+    f"If you need help, contact support: {SUPPORT_LINK}"
+)
+
 ACCESS_LINKS = {
-    # ── Subscription Plans ──
-    "plan_1w":   "https://t.me/+5qbVUN5pklYzYzBk",    # ← replace
-    "plan_1m":   "https://t.me/+5qbVUN5pklYzYzBk",   # ← replace
-    "plan_3m":   "https://t.me/+5qbVUN5pklYzYzBk",   # ← replace
-    "plan_life": "https://t.me/+5qbVUN5pklYzYzBk", # ← replace
+    # Subscription Plans — all share the same channel link
+    "plan_1w":   SUBSCRIPTION_INSTRUCTIONS,
+    "plan_1m":   SUBSCRIPTION_INSTRUCTIONS,
+    "plan_3m":   SUBSCRIPTION_INSTRUCTIONS,
+    "plan_life": SUBSCRIPTION_INSTRUCTIONS,
 
-    # ── VIP Channels ──
-    "vip_1": "https://t.me/+5qbVUN5pklYzYzBk",           # ← replace
-    "vip_2": "https://t.me/+5qbVUN5pklYzYzBk",         # ← replace
+    # VIP Channels
+    "vip_1": SUBSCRIPTION_INSTRUCTIONS,
+    "vip_2": SUBSCRIPTION_INSTRUCTIONS,
 
-    # ── Courses ──
-    "course_1": "https://t.me/+YOUR_STARTER_COURSE_LINK",   # ← replace
-    "course_2": "https://t.me/+YOUR_ADVANCED_COURSE_LINK",  # ← replace
+    # Courses
+    "course_1": SUBSCRIPTION_INSTRUCTIONS,
+    "course_2": SUBSCRIPTION_INSTRUCTIONS,
 
-    # ── Tools — automatic message sent to buyer ──
-    "tool_1": (
-        "✅ *Thank you for purchasing Pro Tool!*\n\n"
-        "Here are your access instructions:\n\n"
-        "1️⃣ Step one — edit this message\n"
-        "2️⃣ Step two — edit this message\n"
-        "3️⃣ Step three — edit this message\n\n"
-        "If you need help, contact support."
-    ),
-    "tool_2": (
-        "✅ *Thank you for purchasing Tools Bundle!*\n\n"
-        "Here are your access instructions:\n\n"
-        "1️⃣ Step one — edit this message\n"
-        "2️⃣ Step two — edit this message\n"
-        "3️⃣ Step three — edit this message\n\n"
-        "If you need help, contact support."
-    ),
+    # Tools — custom instructions
+    "tool_1": TOOL_INSTRUCTIONS,
+    "tool_2": TOOL_INSTRUCTIONS,
 }
 
 # ─────────────────────────────────────────
@@ -100,15 +108,15 @@ def create_payment(amount: float, product_name: str, order_id: str) -> dict | No
         "Content-Type": "application/json",
     }
     payload = {
-        "price_amount": amount,
-        "price_currency": "usd",
-        "pay_currency": "usdttrc20",
-        "order_id": order_id,
-        "order_description": product_name,
-        "ipn_callback_url": "",
+        "price_amount":       amount,
+        "price_currency":     "usd",
+        "pay_currency":       "usdttrc20",
+        "order_id":           order_id,
+        "order_description":  product_name,
     }
     try:
         r = requests.post(f"{NOWPAYMENTS_BASE}/payment", json=payload, headers=headers, timeout=15)
+        logger.info(f"NOWPayments response {r.status_code}: {r.text}")
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -116,27 +124,14 @@ def create_payment(amount: float, product_name: str, order_id: str) -> dict | No
         return None
 
 # ─────────────────────────────────────────
-#  SEND ACCESS — called after payment confirmed
+#  SEND ACCESS
 # ─────────────────────────────────────────
 async def send_access(bot, chat_id: int, product_key: str, prod: dict):
-    access = ACCESS_LINKS.get(product_key)
-    if not access:
-        await bot.send_message(chat_id, "✅ Payment confirmed! Contact support to receive your access.")
+    message = ACCESS_LINKS.get(product_key)
+    if not message:
+        await bot.send_message(chat_id, f"✅ Payment confirmed for *{prod['name']}*! Contact support: {SUPPORT_LINK}", parse_mode="Markdown")
         return
-
-    if product_key in TOOL_KEYS:
-        # Tools: send the instruction message directly
-        await bot.send_message(chat_id, access, parse_mode="Markdown")
-    else:
-        # Plans / VIP / Courses: send Telegram invite link
-        await bot.send_message(
-            chat_id,
-            f"✅ *Payment confirmed!*\n\n"
-            f"🎉 Here is your access link for *{prod['name']}*:\n\n"
-            f"👉 {access}\n\n"
-            f"⚠️ This link is personal — do not share it.",
-            parse_mode="Markdown"
-        )
+    await bot.send_message(chat_id, message, parse_mode="Markdown")
 
 # ─────────────────────────────────────────
 #  KEYBOARDS
@@ -166,12 +161,12 @@ def product_keyboard(product_key: str, back_cb: str):
 # ─────────────────────────────────────────
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    text = (
+    await update.message.reply_text(
         f"👋 Hey, {user.first_name}!\n\n"
         "Welcome to our services & payments bot.\n"
-        "Choose a category to get started:"
+        "Choose a category to get started:",
+        reply_markup=main_menu_keyboard()
     )
-    await update.message.reply_text(text, reply_markup=main_menu_keyboard())
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -209,9 +204,11 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "cat_support":
         await query.edit_message_text(
-            "💬 *Support*\n\nPersonalized support plans:",
+            f"💬 *Support*\n\nNeed help? Contact us directly:\n👉 {SUPPORT_LINK}",
             parse_mode="Markdown",
-            reply_markup=category_keyboard(SUPPORT, "menu")
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Back", callback_data="menu")
+            ]])
         )
     elif data in ALL_PRODUCTS:
         prod = ALL_PRODUCTS[data]
@@ -245,7 +242,8 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         if not payment:
             await query.edit_message_text(
-                "❌ Error connecting to the payment processor. Please try again later.",
+                "❌ Error connecting to the payment processor. Please try again later.\n\n"
+                f"Need help? Contact support: {SUPPORT_LINK}",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🔙 Back to menu", callback_data="menu")
                 ]])
@@ -257,7 +255,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pay_currency = payment.get("pay_currency", "crypto").upper()
         payment_id   = payment.get("payment_id", order_id)
 
-        # Store pending payment in bot_data for webhook confirmation
+        # Store pending payment
         ctx.bot_data.setdefault("pending", {})[order_id] = {
             "chat_id":     query.from_user.id,
             "product_key": product_key,
@@ -293,15 +291,14 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"🛒 Product: {prod['name']}\n"
                 f"💵 Amount: ${prod['price']:.2f} USD\n"
                 f"🔑 Order ID: {order_id}\n"
-                f"🆔 Payment ID: {payment_id}"
+                f"🆔 Payment ID: {payment_id}\n\n"
+                f"To confirm manually: /confirm {order_id}"
             )
         except Exception:
             pass
 
 # ─────────────────────────────────────────
-#  ADMIN COMMAND: /confirm <order_id>
-#  Use this to manually confirm a payment
-#  and send the access link to the buyer
+#  ADMIN: /confirm <order_id>
 # ─────────────────────────────────────────
 async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -324,7 +321,7 @@ async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     prod        = info["prod"]
 
     await send_access(ctx.bot, chat_id, product_key, prod)
-    await update.message.reply_text(f"✅ Access sent to user for order `{order_id}`.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Access sent for order `{order_id}`.", parse_mode="Markdown")
 
 # ─────────────────────────────────────────
 #  STARTUP
