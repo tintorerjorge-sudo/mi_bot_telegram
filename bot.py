@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────
 ACCESS_LINKS = {
     # ── Subscription Plans ──
-    "plan_1w":   "https://t.me/+YOUR_1WEEK_INVITE_LINK",    # ← replace
-    "plan_1m":   "https://t.me/+YOUR_1MONTH_INVITE_LINK",   # ← replace
-    "plan_3m":   "https://t.me/+YOUR_3MONTH_INVITE_LINK",   # ← replace
-    "plan_life": "https://t.me/+YOUR_LIFETIME_INVITE_LINK", # ← replace
+    "plan_1w":   "https://t.me/+5qbVUN5pklYzYzBk",    # ← replace
+    "plan_1m":   "https://t.me/+5qbVUN5pklYzYzBk",   # ← replace
+    "plan_3m":   "https://t.me/+5qbVUN5pklYzYzBk",   # ← replace
+    "plan_life": "https://t.me/+5qbVUN5pklYzYzBk", # ← replace
 
     # ── VIP Channels ──
-    "vip_1": "https://t.me/+YOUR_VIP_BASIC_LINK",           # ← replace
-    "vip_2": "https://t.me/+YOUR_VIP_PREMIUM_LINK",         # ← replace
+    "vip_1": "https://t.me/+5qbVUN5pklYzYzBk",           # ← replace
+    "vip_2": "https://t.me/+5qbVUN5pklYzYzBk",         # ← replace
 
     # ── Courses ──
     "course_1": "https://t.me/+YOUR_STARTER_COURSE_LINK",   # ← replace
