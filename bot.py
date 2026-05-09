@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,6 +19,22 @@ SUPPORT_LINK        = "https://t.me/cypheeer"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────
+#  AVAILABLE CRYPTOS — user picks one
+# ─────────────────────────────────────────
+CRYPTOS = {
+    "btc":        "₿ Bitcoin (BTC)",
+    "eth":        "Ξ Ethereum (ETH)",
+    "usdttrc20":  "💲 USDT (TRC20)",
+    "usdterc20":  "💲 USDT (ERC20)",
+    "ltc":        "Ł Litecoin (LTC)",
+    "xrp":        "◈ XRP (Ripple)",
+    "sol":        "◎ Solana (SOL)",
+    "bnbbsc":     "🔶 BNB (BSC)",
+    "trx":        "🔺 TRON (TRX)",
+    "doge":       "🐶 Dogecoin (DOGE)",
+}
 
 # ─────────────────────────────────────────
 #  ACCESS LINKS & INSTRUCTIONS
@@ -47,23 +62,16 @@ TOOL_INSTRUCTIONS = (
 )
 
 ACCESS_LINKS = {
-    # Subscription Plans — all share the same channel link
     "plan_1w":   SUBSCRIPTION_INSTRUCTIONS,
     "plan_1m":   SUBSCRIPTION_INSTRUCTIONS,
     "plan_3m":   SUBSCRIPTION_INSTRUCTIONS,
     "plan_life": SUBSCRIPTION_INSTRUCTIONS,
-
-    # VIP Channels
-    "vip_1": SUBSCRIPTION_INSTRUCTIONS,
-    "vip_2": SUBSCRIPTION_INSTRUCTIONS,
-
-    # Courses
-    "course_1": SUBSCRIPTION_INSTRUCTIONS,
-    "course_2": SUBSCRIPTION_INSTRUCTIONS,
-
-    # Tools — custom instructions
-    "tool_1": TOOL_INSTRUCTIONS,
-    "tool_2": TOOL_INSTRUCTIONS,
+    "vip_1":     SUBSCRIPTION_INSTRUCTIONS,
+    "vip_2":     SUBSCRIPTION_INSTRUCTIONS,
+    "course_1":  SUBSCRIPTION_INSTRUCTIONS,
+    "course_2":  SUBSCRIPTION_INSTRUCTIONS,
+    "tool_1":    TOOL_INSTRUCTIONS,
+    "tool_2":    TOOL_INSTRUCTIONS,
 }
 
 # ─────────────────────────────────────────
@@ -75,48 +83,60 @@ PLANS = {
     "plan_3m":   {"name": "🚀 3 Months", "price": 120.00, "desc": "Full access for 90 days"},
     "plan_life": {"name": "♾️ Lifetime", "price": 300.00, "desc": "Lifetime access — pay once, keep forever"},
 }
-
 TOOLS = {
     "tool_1": {"name": "🛠️ Pro Tool",     "price": 50.00, "desc": "Premium tool — edit description later"},
     "tool_2": {"name": "⚙️ Tools Bundle", "price": 50.00, "desc": "Full tools pack — edit description later"},
 }
-
 VIP_CHANNELS = {
     "vip_1": {"name": "📢 VIP Channel Basic",   "price": 8.00,  "desc": "VIP channel access — tier 1"},
     "vip_2": {"name": "👑 VIP Channel Premium", "price": 18.00, "desc": "VIP channel access — tier 2"},
 }
-
 COURSES = {
     "course_1": {"name": "📚 Starter Course",  "price": 25.00, "desc": "Introductory course"},
     "course_2": {"name": "🎓 Advanced Course", "price": 50.00, "desc": "Advanced level course"},
 }
-
-SUPPORT = {
+SUPPORT_PLANS = {
     "support_1": {"name": "💬 Basic Support",   "price": 12.00, "desc": "Support for 30 days"},
     "support_2": {"name": "🏆 Premium Support", "price": 30.00, "desc": "Unlimited support for 90 days"},
 }
-
-ALL_PRODUCTS = {**PLANS, **TOOLS, **VIP_CHANNELS, **COURSES, **SUPPORT}
-TOOL_KEYS    = set(TOOLS.keys())
+ALL_PRODUCTS = {**PLANS, **TOOLS, **VIP_CHANNELS, **COURSES, **SUPPORT_PLANS}
 
 # ─────────────────────────────────────────
-#  NOWPAYMENTS HELPER
+#  NOWPAYMENTS
 # ─────────────────────────────────────────
-def create_payment(amount: float, product_name: str, order_id: str) -> dict | None:
+def get_available_currencies() -> list:
+    """Fetch available currencies from NOWPayments."""
+    try:
+        r = requests.get(
+            f"{NOWPAYMENTS_BASE}/currencies?fixed_rate=true",
+            headers={"x-api-key": NOWPAYMENTS_API_KEY},
+            timeout=10
+        )
+        r.raise_for_status()
+        data = r.json()
+        available = [c.lower() for c in data.get("currencies", [])]
+        # Return only our listed cryptos that are actually available
+        return [k for k in CRYPTOS if k in available]
+    except Exception as e:
+        logger.error(f"Error fetching currencies: {e}")
+        return list(CRYPTOS.keys())  # fallback to all
+
+def create_payment(amount: float, product_name: str, order_id: str, pay_currency: str) -> dict | None:
     headers = {
         "x-api-key": NOWPAYMENTS_API_KEY,
         "Content-Type": "application/json",
     }
     payload = {
-        "price_amount":       amount,
-        "price_currency":     "usd",
-        "pay_currency":       "usdttrc20",
-        "order_id":           order_id,
-        "order_description":  product_name,
+        "price_amount":        amount,
+        "price_currency":      "usd",
+        "pay_currency":        pay_currency,
+        "order_id":            order_id,
+        "order_description":   product_name,
+        "is_fee_paid_by_user": True,   # ← customer pays the network fee
     }
     try:
         r = requests.post(f"{NOWPAYMENTS_BASE}/payment", json=payload, headers=headers, timeout=15)
-        logger.info(f"NOWPayments response {r.status_code}: {r.text}")
+        logger.info(f"NOWPayments {r.status_code}: {r.text}")
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -129,7 +149,7 @@ def create_payment(amount: float, product_name: str, order_id: str) -> dict | No
 async def send_access(bot, chat_id: int, product_key: str, prod: dict):
     message = ACCESS_LINKS.get(product_key)
     if not message:
-        await bot.send_message(chat_id, f"✅ Payment confirmed for *{prod['name']}*! Contact support: {SUPPORT_LINK}", parse_mode="Markdown")
+        await bot.send_message(chat_id, f"✅ Payment confirmed for *{prod['name']}*!\nContact support: {SUPPORT_LINK}", parse_mode="Markdown")
         return
     await bot.send_message(chat_id, message, parse_mode="Markdown")
 
@@ -152,9 +172,20 @@ def category_keyboard(products: dict, back_cb: str = "menu"):
 
 def product_keyboard(product_key: str, back_cb: str):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Pay with Crypto", callback_data=f"pay_{product_key}")],
+        [InlineKeyboardButton("💳 Pay with Crypto", callback_data=f"choosecrypto_{product_key}")],
         [InlineKeyboardButton("🔙 Back",            callback_data=back_cb)],
     ])
+
+def crypto_keyboard(product_key: str, available: list):
+    rows = []
+    for i in range(0, len(available), 2):
+        row = []
+        for key in available[i:i+2]:
+            label = CRYPTOS.get(key, key.upper())
+            row.append(InlineKeyboardButton(label, callback_data=f"pay_{product_key}_{key}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data=product_key)])
+    return InlineKeyboardMarkup(rows)
 
 # ─────────────────────────────────────────
 #  HANDLERS
@@ -173,43 +204,27 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
+    # ── Main menu
     if data == "menu":
-        await query.edit_message_text(
-            "🏠 Main Menu — choose a category:",
-            reply_markup=main_menu_keyboard()
-        )
+        await query.edit_message_text("🏠 Main Menu — choose a category:", reply_markup=main_menu_keyboard())
+
+    # ── Categories
     elif data == "cat_plans":
-        await query.edit_message_text(
-            "📦 *Subscription Plans*\n\nChoose the plan that fits you best:",
-            parse_mode="Markdown",
-            reply_markup=category_keyboard(PLANS, "menu")
-        )
+        await query.edit_message_text("📦 *Subscription Plans*\n\nChoose the plan that fits you best:", parse_mode="Markdown", reply_markup=category_keyboard(PLANS, "menu"))
     elif data == "cat_tools":
-        await query.edit_message_text(
-            "🛠️ *Tools*\n\nOur premium tools:",
-            parse_mode="Markdown",
-            reply_markup=category_keyboard(TOOLS, "menu")
-        )
+        await query.edit_message_text("🛠️ *Tools*\n\nOur premium tools:", parse_mode="Markdown", reply_markup=category_keyboard(TOOLS, "menu"))
     elif data == "cat_vip":
-        await query.edit_message_text(
-            "📢 *VIP Channels*\n\nGet access to exclusive content:",
-            parse_mode="Markdown",
-            reply_markup=category_keyboard(VIP_CHANNELS, "menu")
-        )
+        await query.edit_message_text("📢 *VIP Channels*\n\nGet access to exclusive content:", parse_mode="Markdown", reply_markup=category_keyboard(VIP_CHANNELS, "menu"))
     elif data == "cat_courses":
-        await query.edit_message_text(
-            "📚 *Courses*\n\nSpecialized training:",
-            parse_mode="Markdown",
-            reply_markup=category_keyboard(COURSES, "menu")
-        )
+        await query.edit_message_text("📚 *Courses*\n\nSpecialized training:", parse_mode="Markdown", reply_markup=category_keyboard(COURSES, "menu"))
     elif data == "cat_support":
         await query.edit_message_text(
             f"💬 *Support*\n\nNeed help? Contact us directly:\n👉 {SUPPORT_LINK}",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Back", callback_data="menu")
-            ]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]])
         )
+
+    # ── Product detail
     elif data in ALL_PRODUCTS:
         prod = ALL_PRODUCTS[data]
         back = (
@@ -220,15 +235,36 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "cat_support"
         )
         await query.edit_message_text(
-            f"{prod['name']}\n\n"
-            f"📝 {prod['desc']}\n"
-            f"💰 Price: *${prod['price']:.2f} USD*\n\n"
-            "Pay securely with cryptocurrency via NOWPayments.",
+            f"{prod['name']}\n\n📝 {prod['desc']}\n💰 Price: *${prod['price']:.2f} USD*\n\nPay securely with cryptocurrency via NOWPayments.",
             parse_mode="Markdown",
             reply_markup=product_keyboard(data, back)
         )
+
+    # ── Choose crypto
+    elif data.startswith("choosecrypto_"):
+        product_key = data[len("choosecrypto_"):]
+        if product_key not in ALL_PRODUCTS:
+            await query.edit_message_text("❌ Product not found.")
+            return
+        prod = ALL_PRODUCTS[product_key]
+        await query.edit_message_text("⏳ Loading available currencies...")
+        available = get_available_currencies()
+        await query.edit_message_text(
+            f"💳 *Select your payment currency*\n\n"
+            f"🛒 {prod['name']} — *${prod['price']:.2f} USD*\n\n"
+            f"Choose how you'd like to pay:",
+            parse_mode="Markdown",
+            reply_markup=crypto_keyboard(product_key, available)
+        )
+
+    # ── Generate payment with chosen crypto
     elif data.startswith("pay_"):
-        product_key = data[4:]
+        parts = data[4:].rsplit("_", 1)
+        if len(parts) != 2:
+            await query.edit_message_text("❌ Invalid selection.")
+            return
+        product_key, crypto = parts[0], parts[1]
+
         if product_key not in ALL_PRODUCTS:
             await query.edit_message_text("❌ Product not found.")
             return
@@ -238,24 +274,20 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text("⏳ Generating your payment, please wait...")
 
-        payment = create_payment(prod["price"], prod["name"], order_id)
+        payment = create_payment(prod["price"], prod["name"], order_id, crypto)
 
         if not payment:
             await query.edit_message_text(
-                "❌ Error connecting to the payment processor. Please try again later.\n\n"
-                f"Need help? Contact support: {SUPPORT_LINK}",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Back to menu", callback_data="menu")
-                ]])
+                f"❌ Error generating payment. Please try again or contact support:\n{SUPPORT_LINK}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to menu", callback_data="menu")]])
             )
             return
 
         pay_address  = payment.get("pay_address", "N/A")
         pay_amount   = payment.get("pay_amount", "N/A")
-        pay_currency = payment.get("pay_currency", "crypto").upper()
+        pay_currency = payment.get("pay_currency", crypto).upper()
         payment_id   = payment.get("payment_id", order_id)
 
-        # Store pending payment
         ctx.bot_data.setdefault("pending", {})[order_id] = {
             "chat_id":     query.from_user.id,
             "product_key": product_key,
@@ -277,12 +309,9 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"⚠️ Payment expires in 60 minutes.\n"
             f"Once confirmed, you'll receive your access link automatically.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Back to menu", callback_data="menu")
-            ]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to menu", callback_data="menu")]])
         )
 
-        # Notify admin
         try:
             await ctx.bot.send_message(
                 ADMIN_ID,
@@ -290,9 +319,10 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"👤 User: @{query.from_user.username or query.from_user.id}\n"
                 f"🛒 Product: {prod['name']}\n"
                 f"💵 Amount: ${prod['price']:.2f} USD\n"
+                f"💎 Crypto: {pay_currency}\n"
                 f"🔑 Order ID: {order_id}\n"
                 f"🆔 Payment ID: {payment_id}\n\n"
-                f"To confirm manually: /confirm {order_id}"
+                f"✅ To confirm: /confirm {order_id}"
             )
         except Exception:
             pass
@@ -303,7 +333,6 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-
     if not ctx.args:
         await update.message.reply_text("Usage: /confirm <ORDER_ID>")
         return
@@ -332,7 +361,6 @@ def main():
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
-
     logger.info("🤖 Bot started with polling...")
     app.run_polling(drop_pending_updates=True)
 
