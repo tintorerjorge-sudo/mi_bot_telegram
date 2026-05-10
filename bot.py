@@ -318,6 +318,21 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=crypto_keyboard(product_key, available)
         )
 
+    elif data.startswith("cancel_"):
+        order_id = data[len("cancel_"):]
+        pending  = ctx.bot_data.get("pending", {})
+        user_id  = query.from_user.id
+        to_delete = [oid for oid, info in pending.items() if info["chat_id"] == user_id and oid == order_id]
+        for oid in to_delete:
+            del pending[oid]
+        await query.edit_message_text(
+            "🚫 *Transaction Cancelled*\n\n"
+            "Your pending payment has been cancelled.\n"
+            "You can start a new one anytime.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠  Back to Menu", callback_data="menu")]])
+        )
+
     elif data.startswith("pay_"):
         parts = data[4:].rsplit("_", 1)
         if len(parts) != 2:
@@ -327,6 +342,25 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         if product_key not in ALL_PRODUCTS:
             await query.edit_message_text("❌ Product not found.")
+            return
+
+        # ── One pending transaction per user ──
+        user_id = query.from_user.id
+        pending = ctx.bot_data.setdefault("pending", {})
+        existing = {oid: info for oid, info in pending.items() if info["chat_id"] == user_id}
+        if existing:
+            oid, info = next(iter(existing.items()))
+            await query.edit_message_text(
+                "⚠️ *You already have a pending transaction.*\n\n"
+                f"🛒 Product: *{info['prod']['name']}*\n"
+                f"🔑 Order ID: `{oid}`\n\n"
+                "Please complete or cancel your current payment before starting a new one.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"🚫  Cancel order {oid}", callback_data=f"cancel_{oid}")],
+                    [InlineKeyboardButton("⬅️  Back to Menu", callback_data="menu")],
+                ])
+            )
             return
 
         prod     = ALL_PRODUCTS[product_key]
